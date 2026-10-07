@@ -67,7 +67,7 @@ input[type=date]{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
 .source{margin-top:10px;font-size:12.5px;color:var(--muted)}
 
 .results{min-width:0}
-.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 @media (max-width:640px){.tabs{grid-template-columns:repeat(2,1fr)}}
 .tab{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer;border-left-width:6px}
 .tab .n{display:block;font-size:30px;font-weight:800;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
@@ -76,6 +76,20 @@ input[type=date]{padding:7px 9px;border:1px solid var(--line);border-radius:8px;
 .tab[data-k=matched]{border-left-color:var(--ok)}
 .tab[data-k=missing]{border-left-color:var(--miss)}
 .tab[data-k=extra]{border-left-color:var(--extra)}
+.tab[data-k=validated]{border-left-color:var(--muted)}
+.tab[data-k=driver]{border-left-color:var(--hold)}
+[hidden]{display:none!important}
+td{vertical-align:top}
+td.wrap{white-space:normal;min-width:260px;width:100%}
+.ids{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.bar{display:flex;width:90px;height:12px;border-radius:6px;overflow:hidden;background:var(--miss-bg)}
+.bar span{display:block;height:100%}
+.bar .a{background:var(--ok)} .bar .v{background:var(--muted)} .bar .l{background:var(--miss)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:8px 14px;font-size:12.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.legend b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+td.left-n{font-weight:800;font-variant-numeric:tabular-nums}
+td.left-n.z{color:var(--ok)} td.left-n.p{color:var(--miss)}
+.btn.link{border-color:transparent;background:none;text-decoration:underline;padding:2px 6px}
 .tab[aria-selected=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .tab[aria-selected=true] .l{color:var(--bg);opacity:.8}
 
@@ -131,6 +145,11 @@ td a:hover{text-decoration:underline}
     <div class="row" style="margin-top:8px"><button class="btn small" id="abortBtn" type="button" hidden>Cancel import</button></div>
     <div id="sync" class="sync-status" role="status" aria-live="polite">Not imported yet.</div>
 
+    <div class="row" style="margin-top:12px">
+      <button class="btn small" id="validateBtn" type="button" title="Save the inputted IDs as done and hide them from the checker">Mark inputted as validated</button>
+      <button class="btn small" id="clearDataBtn" type="button">Clear saved SPX data</button>
+    </div>
+
     <p class="or">No extension? Load the exported CSV yourself:</p>
     <label class="drop" id="drop">Choose or drop the OnHold CSV here
       <input type="file" id="file" accept=".csv,text/csv">
@@ -144,6 +163,8 @@ td a:hover{text-decoration:underline}
       <button class="tab" role="tab" data-k="matched" aria-selected="true"><span class="n" id="nMatched">0</span><span class="l">Found OnHold in SPX</span></button>
       <button class="tab" role="tab" data-k="missing" aria-selected="false"><span class="n" id="nMissing">0</span><span class="l">Missing from SPX OnHold</span></button>
       <button class="tab" role="tab" data-k="extra" aria-selected="false"><span class="n" id="nExtra">0</span><span class="l">In SPX, not inputted</span></button>
+      <button class="tab" role="tab" data-k="driver" aria-selected="false"><span class="n" id="nDriver">0</span><span class="l">Drivers with OnHold left</span></button>
+      <button class="tab" role="tab" data-k="validated" aria-selected="false"><span class="n" id="nValidated">0</span><span class="l">Validated (done)</span></button>
     </div>
 
     <div class="card">
@@ -153,12 +174,14 @@ td a:hover{text-decoration:underline}
           <input class="search" id="search" type="search" placeholder="Search this list" aria-label="Search this list">
         </div>
         <div class="left">
-          <label class="chk"><input type="checkbox" id="incMissing" checked> Include missing IDs in CSV</label>
+          <label class="chk" id="onlyWrap" hidden><input type="checkbox" id="onlyLeft"> Only drivers with OnHold left</label>
+          <label class="chk" id="incWrap"><input type="checkbox" id="incMissing" checked> Include missing IDs in CSV</label>
+          <button class="btn small" id="clearValBtn" type="button" hidden>Clear all validated</button>
           <button class="btn primary small" id="exportBtn" type="button">Export CSV</button>
         </div>
       </div>
       <div class="tablewrap" id="tableHost"></div>
-      <div class="footer-note">Click any Order ID to open its OnHold proof page in SPX in a new tab. Click a column heading to sort.</div>
+      <div class="footer-note">Click any Order ID to open its OnHold proof page in SPX in a new tab. Click a column heading to sort. Imported SPX data, your IDs and the validated list are saved in this browser until you clear them.</div>
     </div>
   </section>
 </main>
@@ -173,6 +196,14 @@ td a:hover{text-decoration:underline}
   const LINK = (id) => "https://spx.shopee.ph/#/orderDetail/" + encodeURIComponent(id) + "/proof_of_onhold";
   const COLS = ["Order ID", "Town Name", "Driver ID", "Driver Name", "OnHoldReason", "Status", "Delivery Attempts", "Current Station"];
   const LS_KEY = "rider_onhold_checker_ids_v1";
+  const LS_DATA = "rider_onhold_checker_spx_v1";
+  const LS_VAL = "rider_onhold_checker_validated_v1";
+  const KEEP_COLS = COLS.concat(["SLS Tracking Number"]);
+  const store = {
+    get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch (_) {} }
+  };
 
   /* ---------- state ---------- */
   const S = {
@@ -185,7 +216,12 @@ td a:hover{text-decoration:underline}
     view: "matched",
     sort: { col: null, dir: 1 },
     bridgeReady: false,
-    busy: false
+    busy: false,
+    validated: {},       // input id -> record, saved as done
+    hidden: 0,           // inputted IDs hidden because already validated
+    importedAt: 0,
+    drivers: [],
+    dsort: { col: "left", dir: -1 }
   };
 
   const $ = (id) => document.getElementById(id);
@@ -256,6 +292,40 @@ td a:hover{text-decoration:underline}
     n.className = "sync-status" + (kind ? " " + kind : "");
   }
 
+  function validatedKeys() {
+    const k = new Set();
+    Object.values(S.validated).forEach((v) => { [v.id, v.orderId, v.sls].forEach((x) => { if (x) k.add(String(x).toUpperCase()); }); });
+    return k;
+  }
+  function keyMap() {
+    const m = new Map();
+    S.rows.forEach((r) => {
+      m.set(String(r["Order ID"]).toUpperCase(), r);
+      const sls = String(r["SLS Tracking Number"] || "").toUpperCase();
+      if (sls && !m.has(sls)) m.set(sls, r);
+    });
+    return m;
+  }
+  const fmtTime = (t) => t ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+
+  function buildDrivers() {
+    const vk = validatedKeys();
+    const matchedSet = new Set(S.result.matched);
+    const map = new Map();
+    S.rows.forEach((r) => {
+      const id = r["Driver ID"] || "", name = r["Driver Name"] || "(no driver)";
+      const key = id || name;
+      let d = map.get(key);
+      if (!d) { d = { id, name, total: 0, actual: 0, validated: 0, left: [] }; map.set(key, d); }
+      d.total++;
+      const oid = String(r["Order ID"]).toUpperCase(), sls = String(r["SLS Tracking Number"] || "").toUpperCase();
+      if (matchedSet.has(r)) d.actual++;
+      else if (vk.has(oid) || (sls && vk.has(sls))) d.validated++;
+      else d.left.push(r["Order ID"]);
+    });
+    S.drivers = Array.from(map.values());
+  }
+
   /* ---------- the check ---------- */
   function runCheck() {
     const inputSet = new Set(S.inputIds);
@@ -271,24 +341,33 @@ td a:hover{text-decoration:underline}
       const r = byKey.get(id);
       if (r) { matched.push(r); used.add(r); } else missing.push({ "Order ID": id });
     });
+    const vk = validatedKeys();
     const extra = S.rows.filter((r) => {
       if (used.has(r)) return false;
+      if (vk.has(String(r["Order ID"]).toUpperCase()) || vk.has(String(r["SLS Tracking Number"] || "").toUpperCase())) return false;
       return !inputSet.has(String(r["Order ID"]).toUpperCase());
     });
     S.result = { matched, missing, extra };
+    buildDrivers();
     render();
   }
 
   /* ---------- rendering ---------- */
   function counts() {
     $("cntIds").textContent = S.inputIds.length.toLocaleString();
-    $("cntDup").textContent = S.dupes ? S.dupes + " duplicate" + (S.dupes > 1 ? "s" : "") + " removed" : "";
+    const notes = [];
+    if (S.dupes) notes.push(S.dupes + " duplicate" + (S.dupes > 1 ? "s" : "") + " removed");
+    if (S.hidden) notes.push(S.hidden + " already validated, hidden");
+    $("cntDup").textContent = notes.join(" / ");
+    $("nDriver").textContent = S.drivers.filter((d) => d.left.length).length.toLocaleString();
+    $("nValidated").textContent = Object.keys(S.validated).length.toLocaleString();
     $("nInput").textContent = S.inputIds.length.toLocaleString();
     $("nMatched").textContent = S.result.matched.length.toLocaleString();
     $("nMissing").textContent = S.result.missing.length.toLocaleString();
     $("nExtra").textContent = S.result.extra.length.toLocaleString();
   }
-  const TITLES = { input: "Inputted Order IDs", matched: "Found OnHold in SPX", missing: "Inputted but missing from SPX OnHold", extra: "In SPX OnHold but not inputted" };
+  const TITLES = { input: "Inputted Order IDs", matched: "Found OnHold in SPX", missing: "Inputted but missing from SPX OnHold", extra: "In SPX OnHold but not inputted", validated: "Validated (done) - hidden from the checker", driver: "Actual vs SPX OnHold per driver" };
+  const VAL_COLS = ["Order ID", "Town Name", "Driver Name", "OnHoldReason", "Delivery Attempts", "Validated", "Action"];
 
   function orderLink(id) {
     return el("a", { href: LINK(id), target: "_blank", rel: "noopener noreferrer", text: id, title: "Open OnHold proof in SPX" });
@@ -303,6 +382,11 @@ td a:hover{text-decoration:underline}
       // faster lookup instead of .some per row for large inputs
       const miss = new Set(S.result.missing.map((m) => m["Order ID"]));
       list.forEach((o) => { o["Result"] = !S.haveData ? "Not checked" : miss.has(o["Order ID"]) ? "Missing" : "Found"; });
+    } else if (S.view === "validated") {
+      list = Object.values(S.validated).sort((a, b) => b.at - a.at).map((v) => ({
+        "Order ID": v.orderId || v.id, "Town Name": v.town || "", "Driver Name": v.driverName || "",
+        "OnHoldReason": v.reason || "", "Delivery Attempts": v.attempts || "", "Validated": fmtTime(v.at), "_id": v.id
+      }));
     } else list = S.result[S.view];
     if (q) list = list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q)));
     if (S.sort.col) {
@@ -311,17 +395,82 @@ td a:hover{text-decoration:underline}
     }
     return list;
   }
+  const host0 = () => $("tableHost");
+  function driverRows() {
+    const q = $("search").value.trim().toLowerCase();
+    let list = S.drivers.slice();
+    if ($("onlyLeft").checked) list = list.filter((d) => d.left.length);
+    if (q) list = list.filter((d) => (d.name + " " + d.id + " " + d.left.join(" ")).toLowerCase().includes(q));
+    const val = { name: (d) => d.name, id: (d) => d.id, total: (d) => d.total, actual: (d) => d.actual, validated: (d) => d.validated, left: (d) => d.left.length };
+    const g = val[S.dsort.col] || val.left, dir = S.dsort.dir;
+    return list.sort((a, b) => {
+      const x = g(a), y = g(b);
+      const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+      return (c || a.name.localeCompare(b.name)) * dir;
+    });
+  }
+  function renderDrivers(host) {
+    host.replaceChildren();
+    if (!S.haveData) { host.append(el("div", { class: "empty" }, el("b", { text: "Waiting for SPX data" }), "Import OnHold from the SPX Portal (or load the CSV) to see each driver.")); return; }
+    const list = driverRows();
+    const tot = S.drivers.reduce((a, d) => { a.t += d.total; a.a += d.actual; a.v += d.validated; a.l += d.left.length; return a; }, { t: 0, a: 0, v: 0, l: 0 });
+    host.append(el("div", { class: "legend" },
+      el("span", null, el("b", { style: "background:var(--ok)" }), "Actual inputted: " + tot.a.toLocaleString()),
+      el("span", null, el("b", { style: "background:var(--muted)" }), "Validated earlier: " + tot.v.toLocaleString()),
+      el("span", null, el("b", { style: "background:var(--miss)" }), "Without actual: " + tot.l.toLocaleString()),
+      el("span", null, "SPX OnHold total: " + tot.t.toLocaleString())));
+    if (!list.length) { host.append(el("div", { class: "empty" }, el("b", { text: "No drivers to show" }), "Every driver is covered, or the search found nothing.")); return; }
+    const heads = [["name", "Driver Name"], ["id", "Driver ID"], ["total", "SPX OnHold"], ["actual", "Actual"], ["validated", "Validated"], ["left", "Without actual"], [null, "Actual vs SPX"], [null, "Order IDs without actual"]];
+    const thead = el("thead", null, el("tr", null, heads.map(([k, label]) => {
+      const th = el("th", { scope: "col", text: label + (k && S.dsort.col === k ? (S.dsort.dir > 0 ? " \u25B2" : " \u25BC") : "") });
+      if (k) {
+        th.tabIndex = 0;
+        const go = () => { S.dsort = { col: k, dir: S.dsort.col === k ? -S.dsort.dir : (k === "name" || k === "id" ? 1 : -1) }; render(); };
+        th.addEventListener("click", go);
+        th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      }
+      return th;
+    })));
+    const body = el("tbody");
+    list.forEach((d) => {
+      const pct = (n) => (d.total ? (n / d.total) * 100 : 0).toFixed(1) + "%";
+      const bar = el("div", { class: "bar", title: d.actual + " actual, " + d.validated + " validated, " + d.left.length + " without actual" },
+        el("span", { class: "a", style: "width:" + pct(d.actual) }), el("span", { class: "v", style: "width:" + pct(d.validated) }), el("span", { class: "l", style: "width:" + pct(d.left.length) }));
+      const idsCell = el("td", { class: "wrap" });
+      if (d.left.length) {
+        const box = el("div", { class: "ids" }, d.left.map((id) => orderLink(id)));
+        const cp = el("button", { class: "btn small link", type: "button", text: "Copy" });
+        cp.addEventListener("click", () => { try { navigator.clipboard.writeText(d.left.join("\n")); cp.textContent = "Copied"; setTimeout(() => { cp.textContent = "Copy"; }, 1200); } catch (_) {} });
+        box.append(cp); idsCell.append(box);
+      } else idsCell.append("All accounted for");
+      body.append(el("tr", null,
+        el("td", { text: d.name }), el("td", { class: "num", text: d.id }), el("td", { class: "num", text: String(d.total) }),
+        el("td", { class: "num", text: String(d.actual) }), el("td", { class: "num", text: String(d.validated) }),
+        el("td", { class: "left-n " + (d.left.length ? "p" : "z"), text: String(d.left.length) }),
+        el("td", null, bar), idsCell));
+    });
+    host.append(el("div", { class: "tablewrap" }, el("table", { style: "min-width:0" }, thead, body)));
+    if (S.result.missing.length) host.append(el("div", { class: "footer-note", text: S.result.missing.length + " inputted ID(s) are not OnHold in SPX, so they have no driver here. See the Missing tab." }));
+  }
   function render() {
     counts();
     document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.k === S.view)));
     $("viewTitle").textContent = TITLES[S.view];
-    const host = $("tableHost");
+    const isVal = S.view === "validated";
+    $("clearValBtn").hidden = !isVal || !Object.keys(S.validated).length;
+    const isDrv = S.view === "driver";
+    $("incWrap").hidden = isVal || isDrv;
+    $("onlyWrap").hidden = !isDrv;
+    $("exportBtn").textContent = isVal ? "Export validated CSV" : isDrv ? "Export driver CSV" : "Export CSV";
+    if (isDrv) { renderDrivers(host0()); return; }
+    const host = host0();
     host.replaceChildren();
     const list = currentRows();
 
     if (!list.length) {
       let head = "Nothing here", sub = "";
-      if (!S.inputIds.length && S.view !== "extra") { head = "No Order IDs yet"; sub = "Paste your Order IDs on the left."; }
+      if (isVal) { head = "Nothing validated yet"; sub = "After checking, click Mark inputted as validated to save IDs as done."; }
+      else if (!S.inputIds.length && S.view !== "extra") { head = "No Order IDs yet"; sub = "Paste your Order IDs on the left."; }
       else if (!S.haveData && S.view !== "input") { head = "Waiting for SPX data"; sub = "Click Import OnHold from SPX Portal, or load the CSV."; }
       else if (S.view === "missing") { head = "Nothing missing"; sub = "Every inputted Order ID is OnHold in SPX."; }
       else if (S.view === "extra") { head = "No extras"; sub = "Every OnHold parcel in SPX is in your list."; }
@@ -329,7 +478,7 @@ td a:hover{text-decoration:underline}
       return;
     }
 
-    const cols = S.view === "input" ? ["Order ID", "Result"] : S.view === "missing" ? ["Order ID"] : COLS;
+    const cols = S.view === "input" ? ["Order ID", "Result"] : S.view === "missing" ? ["Order ID"] : isVal ? VAL_COLS : COLS;
     const thead = el("thead", null, el("tr", null, cols.map((c) => {
       const th = el("th", { scope: "col", tabindex: "0", text: c + (S.sort.col === c ? (S.sort.dir > 0 ? " \u25B2" : " \u25BC") : "") });
       const go = () => { S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : 1 }; render(); };
@@ -344,7 +493,12 @@ td a:hover{text-decoration:underline}
       cols.forEach((c) => {
         const td = el("td");
         const v = r[c] == null ? "" : r[c];
-        if (c === "Order ID") td.append(orderLink(v));
+        if (c === "Action") {
+          const b = el("button", { class: "btn small link", type: "button", text: "Restore", title: "Put this ID back into the checker" });
+          b.addEventListener("click", () => restoreValidated(r["_id"]));
+          td.append(b);
+        }
+        else if (c === "Order ID") td.append(orderLink(v));
         else if (c === "OnHoldReason") td.append(v ? el("span", { class: "reason", text: v }) : "");
         else if (c === "Delivery Attempts") { td.className = "num"; td.append(el("span", { class: "att" + (Number(v) >= 3 ? " hi" : ""), text: v })); }
         else if (c === "Status") { td.append(v); if (v && v !== "OnHold") td.append(el("span", { class: "flag", text: "not OnHold" })); }
@@ -359,15 +513,58 @@ td a:hover{text-decoration:underline}
     if (list.length > LIMIT) host.append(el("div", { class: "empty", text: "Showing first " + LIMIT.toLocaleString() + " of " + list.length.toLocaleString() + ". Use search or export for the rest." }));
   }
 
+  /* ---------- saved data / validated ---------- */
+  function showSource() {
+    $("source").textContent = S.haveData ? "Saved SPX data: " + S.rows.length.toLocaleString() + " OnHold rows from " + S.sourceLabel + ", imported " + fmtTime(S.importedAt) + "." : "";
+  }
+  function clearSpxData() {
+    if (!confirm("Clear the saved SPX OnHold data? Your IDs and validated list are kept.")) return;
+    store.del(LS_DATA);
+    S.rows = []; S.haveData = false; S.sourceLabel = ""; S.importedAt = 0;
+    S.result = { matched: [], missing: [], extra: [] }; S.drivers = [];
+    showSource(); setSync("Saved SPX data cleared.", ""); render();
+  }
+  function markValidated() {
+    if (!S.inputIds.length) { setSync("No Order IDs to validate. Paste IDs first.", "err"); return; }
+    if (!S.haveData) { setSync("Import the OnHold data first, so each ID is saved with its reason and attempts.", "err"); return; }
+    if (!confirm("Save " + S.inputIds.length + " inputted Order ID(s) as validated and clear them from the checker?")) return;
+    const by = keyMap(), now = Date.now();
+    S.inputIds.forEach((id) => {
+      const r = by.get(id);
+      S.validated[id] = {
+        id, orderId: r ? r["Order ID"] : id, sls: r ? r["SLS Tracking Number"] : "",
+        town: r ? r["Town Name"] : "", driverName: r ? r["Driver Name"] : "",
+        reason: r ? r["OnHoldReason"] : "", attempts: r ? r["Delivery Attempts"] : "", found: !!r, at: now
+      };
+    });
+    const ok = store.set(LS_VAL, S.validated);
+    const n = S.inputIds.length;
+    $("ids").value = ""; onIdsChanged();
+    setSync(n.toLocaleString() + " ID(s) saved as validated." + (ok ? "" : " Could not save to this browser (storage full)."), ok ? "good" : "err");
+  }
+  function restoreValidated(id) {
+    delete S.validated[id];
+    store.set(LS_VAL, S.validated);
+    const box = $("ids");
+    box.value = (box.value.trim() ? box.value.replace(/\s+$/, "") + "\n" : "") + id;
+    onIdsChanged();
+  }
+  function clearValidated() {
+    if (!confirm("Remove all validated IDs? They will show up in the checker again if you paste them.")) return;
+    S.validated = {}; store.del(LS_VAL); onIdsChanged();
+  }
+
   /* ---------- importing data ---------- */
   function loadCsvText(text, label) {
     const { rows, missingCols } = csvToObjects(text);
     if (!rows.length) { setSync("The file has no OnHold rows.", "err"); return; }
     if (missingCols.includes("Order ID")) { setSync("This does not look like an SPX export (no Order ID column).", "err"); return; }
-    S.rows = rows; S.haveData = true; S.sourceLabel = label;
-    $("source").textContent = "Loaded " + rows.length.toLocaleString() + " OnHold rows from " + label + ".";
+    const slim = rows.map((r) => { const o = {}; KEEP_COLS.forEach((c) => { o[c] = r[c] || ""; }); return o; });
+    S.rows = slim; S.haveData = true; S.sourceLabel = label; S.importedAt = Date.now();
+    const saved = store.set(LS_DATA, { rows: slim, label, at: S.importedAt });
+    showSource();
     const warn = missingCols.length ? " Missing columns: " + missingCols.join(", ") + "." : "";
-    setSync("Imported " + rows.length.toLocaleString() + " OnHold rows." + warn, missingCols.length ? "err" : "good");
+    setSync("Imported " + rows.length.toLocaleString() + " OnHold rows." + (saved ? " Saved until you clear it." : " Could not save to this browser (storage full).") + warn, (missingCols.length || !saved) ? "err" : "good");
     if (S.view === "input" || S.view === "matched") S.view = "matched";
     runCheck();
   }
@@ -410,41 +607,63 @@ td a:hover{text-decoration:underline}
   });
 
   /* ---------- export ---------- */
+  function saveCsv(lines, name) {
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    const a = el("a", { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  const EXPORT_HEAD = ["Order ID", "OnHoldReason", "Delivery Attempts"].join(",");
+  function exportValidated() {
+    const recs = Object.values(S.validated).sort((a, b) => a.at - b.at);
+    if (!recs.length) { setSync("Nothing validated to export.", "err"); return; }
+    const lines = [EXPORT_HEAD];
+    recs.forEach((v) => lines.push([v.orderId || v.id, v.reason, v.attempts].map(csvCell).join(",")));
+    saveCsv(lines, "rider_onhold_validated_" + todayManila() + ".csv");
+    setSync("Exported " + recs.length.toLocaleString() + " validated rows. They stay saved until you clear them.", "good");
+  }
+  function exportDrivers() {
+    if (!S.haveData) { setSync("Import the OnHold data first.", "err"); return; }
+    const lines = [["Driver ID", "Driver Name", "SPX OnHold", "Actual", "Validated", "Without Actual", "Order IDs Without Actual"].join(",")];
+    driverRows().forEach((d) => lines.push([d.id, d.name, d.total, d.actual, d.validated, d.left.length, d.left.join(" ")].map(csvCell).join(",")));
+    saveCsv(lines, "rider_onhold_by_driver_" + todayManila() + ".csv");
+    setSync("Exported the per-driver summary.", "good");
+  }
   function exportCsv() {
+    if (S.view === "driver") { exportDrivers(); return; }
+    if (S.view === "validated") { exportValidated(); return; }
     if (!S.inputIds.length) { setSync("Nothing to export. Paste some Order IDs first.", "err"); return; }
     const inc = $("incMissing").checked;
-    const matchedBy = new Map();
-    S.result.matched.forEach((r) => {
-      matchedBy.set(String(r["Order ID"]).toUpperCase(), r);
-      const sls = String(r["SLS Tracking Number"] || "").toUpperCase();
-      if (sls && !matchedBy.has(sls)) matchedBy.set(sls, r);
-    });
-    const lines = [["Order ID", "OnHoldReason", "Delivery Attempts"].join(",")];
+    const by = keyMap();
+    const lines = [EXPORT_HEAD];
     let n = 0;
     S.inputIds.forEach((id) => {
-      const r = matchedBy.get(id);
+      const r = by.get(id);
       if (!r && !inc) return;
       lines.push([r ? r["Order ID"] : id, r ? r["OnHoldReason"] : "", r ? r["Delivery Attempts"] : ""].map(csvCell).join(","));
       n++;
     });
-    const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: "rider_onhold_" + $("date").value + ".csv" });
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    saveCsv(lines, "rider_onhold_" + $("date").value + ".csv");
     setSync("Exported " + n.toLocaleString() + " rows.", "good");
   }
 
   /* ---------- wiring ---------- */
   function onIdsChanged() {
     const { ids, dupes } = parseIds($("ids").value);
-    S.inputIds = ids; S.dupes = dupes;
+    const vk = validatedKeys();
+    const kept = ids.filter((i) => !vk.has(i));
+    S.inputIds = kept; S.dupes = dupes; S.hidden = ids.length - kept.length;
     try { localStorage.setItem(LS_KEY, $("ids").value); } catch (_) {}
     if (S.haveData) runCheck(); else render();
   }
   $("ids").addEventListener("input", onIdsChanged);
   $("clearBtn").addEventListener("click", () => { $("ids").value = ""; onIdsChanged(); $("ids").focus(); });
   $("search").addEventListener("input", render);
+  $("onlyLeft").addEventListener("change", render);
   $("exportBtn").addEventListener("click", exportCsv);
+  $("validateBtn").addEventListener("click", markValidated);
+  $("clearDataBtn").addEventListener("click", clearSpxData);
+  $("clearValBtn").addEventListener("click", clearValidated);
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { S.view = t.dataset.k; S.sort = { col: null, dir: 1 }; render(); }));
 
   $("importBtn").addEventListener("click", () => {
@@ -475,6 +694,9 @@ td a:hover{text-decoration:underline}
   /* ---------- init ---------- */
   $("date").value = todayManila();
   try { const saved = localStorage.getItem(LS_KEY); if (saved) $("ids").value = saved; } catch (_) {}
+  const sv = store.get(LS_VAL); if (sv && typeof sv === "object") S.validated = sv;
+  const sd = store.get(LS_DATA);
+  if (sd && Array.isArray(sd.rows) && sd.rows.length) { S.rows = sd.rows; S.haveData = true; S.sourceLabel = sd.label || "saved import"; S.importedAt = sd.at || 0; showSource(); }
   onIdsChanged();
   post("BAUKO_CHECKER_READY");
   let tries = 0;
