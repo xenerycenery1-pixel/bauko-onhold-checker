@@ -111,6 +111,8 @@ td a:hover{text-decoration:underline}
 .flag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;background:var(--miss-bg);color:var(--miss);font-size:12px;font-weight:700}
 .att{display:inline-block;min-width:24px;text-align:center;padding:1px 7px;border-radius:6px;background:var(--bg);font-weight:700}
 .att.hi{background:var(--miss-bg);color:var(--miss)}
+select.rts{padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font-weight:600;cursor:pointer}
+select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--miss)}
 .empty{padding:44px 20px;text-align:center;color:var(--muted)}
 .empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
 .footer-note{padding:10px 14px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line)}
@@ -198,6 +200,7 @@ td a:hover{text-decoration:underline}
   const LS_KEY = "rider_onhold_checker_ids_v1";
   const LS_DATA = "rider_onhold_checker_spx_v1";
   const LS_VAL = "rider_onhold_checker_validated_v1";
+  const LS_RTS = "rider_onhold_checker_rts_v1";
   const KEEP_COLS = COLS.concat(["SLS Tracking Number"]);
   const store = {
     get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (_) { return null; } },
@@ -220,6 +223,7 @@ td a:hover{text-decoration:underline}
     validated: {},       // input id -> record, saved as done
     hidden: 0,           // inputted IDs hidden because already validated
     importedAt: 0,
+    rts: {},             // Order ID -> "Yes" | "No" (default No)
     drivers: [],
     dsort: { col: "left", dir: -1 }
   };
@@ -306,6 +310,14 @@ td a:hover{text-decoration:underline}
     });
     return m;
   }
+  const getRts = (id) => S.rts[String(id).toUpperCase()] === "Yes" ? "Yes" : "No";
+  const MATCH_COLS = COLS.slice(0, COLS.indexOf("Delivery Attempts") + 1).concat(["RTS"], COLS.slice(COLS.indexOf("Delivery Attempts") + 1));
+  function setRts(id, val, fromValidated) {
+    S.rts[String(id).toUpperCase()] = val;
+    store.set(LS_RTS, S.rts);
+    Object.values(S.validated).forEach((v) => { if (String(v.orderId || v.id).toUpperCase() === String(id).toUpperCase()) v.rts = val; });
+    if (fromValidated || Object.keys(S.validated).length) store.set(LS_VAL, S.validated);
+  }
   const fmtTime = (t) => t ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
 
   function buildDrivers() {
@@ -367,7 +379,7 @@ td a:hover{text-decoration:underline}
     $("nExtra").textContent = S.result.extra.length.toLocaleString();
   }
   const TITLES = { input: "Inputted Order IDs", matched: "Found OnHold in SPX", missing: "Inputted but missing from SPX OnHold", extra: "In SPX OnHold but not inputted", validated: "Validated (done) - hidden from the checker", driver: "Actual vs SPX OnHold per driver" };
-  const VAL_COLS = ["Order ID", "Town Name", "Driver Name", "OnHoldReason", "Delivery Attempts", "Validated", "Action"];
+  const VAL_COLS = ["Order ID", "Town Name", "Driver Name", "OnHoldReason", "Delivery Attempts", "RTS", "Validated", "Action"];
 
   function orderLink(id) {
     return el("a", { href: LINK(id), target: "_blank", rel: "noopener noreferrer", text: id, title: "Open OnHold proof in SPX" });
@@ -385,9 +397,10 @@ td a:hover{text-decoration:underline}
     } else if (S.view === "validated") {
       list = Object.values(S.validated).sort((a, b) => b.at - a.at).map((v) => ({
         "Order ID": v.orderId || v.id, "Town Name": v.town || "", "Driver Name": v.driverName || "",
-        "OnHoldReason": v.reason || "", "Delivery Attempts": v.attempts || "", "Validated": fmtTime(v.at), "_id": v.id
+        "OnHoldReason": v.reason || "", "Delivery Attempts": v.attempts || "", "RTS": v.rts === "Yes" ? "Yes" : "No", "Validated": fmtTime(v.at), "_id": v.id
       }));
     } else list = S.result[S.view];
+    if (S.view === "matched") list = list.map((r) => Object.assign({}, r, { "RTS": getRts(r["Order ID"]) }));
     if (q) list = list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q)));
     if (S.sort.col) {
       const c = S.sort.col, d = S.sort.dir;
@@ -478,7 +491,7 @@ td a:hover{text-decoration:underline}
       return;
     }
 
-    const cols = S.view === "input" ? ["Order ID", "Result"] : S.view === "missing" ? ["Order ID"] : isVal ? VAL_COLS : COLS;
+    const cols = S.view === "input" ? ["Order ID", "Result"] : S.view === "missing" ? ["Order ID"] : isVal ? VAL_COLS : S.view === "matched" ? MATCH_COLS : COLS;
     const thead = el("thead", null, el("tr", null, cols.map((c) => {
       const th = el("th", { scope: "col", tabindex: "0", text: c + (S.sort.col === c ? (S.sort.dir > 0 ? " \u25B2" : " \u25BC") : "") });
       const go = () => { S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : 1 }; render(); };
@@ -497,6 +510,17 @@ td a:hover{text-decoration:underline}
           const b = el("button", { class: "btn small link", type: "button", text: "Restore", title: "Put this ID back into the checker" });
           b.addEventListener("click", () => restoreValidated(r["_id"]));
           td.append(b);
+        }
+        else if (c === "RTS") {
+          const key = isVal ? r["_id"] : r["Order ID"];
+          const sel = el("select", { class: "rts" + (v === "Yes" ? " yes" : ""), "aria-label": "RTS for " + r["Order ID"] },
+            ["No", "Yes"].map((o) => { const op = el("option", { value: o, text: o }); if (o === v) op.selected = true; return op; }));
+          sel.addEventListener("change", () => {
+            if (isVal && S.validated[key]) S.validated[key].rts = sel.value;
+            setRts(isVal && S.validated[key] ? (S.validated[key].orderId || key) : key, sel.value, isVal);
+            sel.className = "rts" + (sel.value === "Yes" ? " yes" : "");
+          });
+          td.append(sel);
         }
         else if (c === "Order ID") td.append(orderLink(v));
         else if (c === "OnHoldReason") td.append(v ? el("span", { class: "reason", text: v }) : "");
@@ -534,7 +558,7 @@ td a:hover{text-decoration:underline}
       S.validated[id] = {
         id, orderId: r ? r["Order ID"] : id, sls: r ? r["SLS Tracking Number"] : "",
         town: r ? r["Town Name"] : "", driverName: r ? r["Driver Name"] : "",
-        reason: r ? r["OnHoldReason"] : "", attempts: r ? r["Delivery Attempts"] : "", found: !!r, at: now
+        reason: r ? r["OnHoldReason"] : "", attempts: r ? r["Delivery Attempts"] : "", rts: getRts(r ? r["Order ID"] : id), found: !!r, at: now
       };
     });
     const ok = store.set(LS_VAL, S.validated);
@@ -590,11 +614,33 @@ td a:hover{text-decoration:underline}
     if (!m || m.source !== PAGE_SOURCE) return;
     switch (m.type) {
       case "BAUKO_BRIDGE_READY":
-        S.bridgeReady = true; setBridge("on", "Extension connected" + (m.version ? " v" + m.version : "")); break;
-      case "BAUKO_BRIDGE_DISCONNECTED":
-        S.bridgeReady = false; setBridge("off", "Extension disconnected");
-        if (S.busy) { setBusy(false); setSync(m.message || "Extension connection closed. Refresh the page (F5) and try again.", "err"); }
+        clearTimeout(S.dropTimer);
+        S.bridgeReady = true; setBridge("on", "Extension connected" + (m.version ? " v" + m.version : ""));
+        // The background worker reports whether it still has a sync running. If we were
+        // waiting on one and it does not, the worker was restarted and the job was lost.
+        if (S.busy && m.running === false) {
+          setBusy(false);
+          setSync("The sync was interrupted (the extension restarted). Click Import OnHold again.", "err");
+        }
         break;
+      case "BAUKO_BRIDGE_DISCONNECTED": {
+        S.bridgeReady = false;
+        const gone = /invalidated|extension context/i.test(m.message || "");
+        clearTimeout(S.dropTimer);
+        if (gone) {
+          setBridge("off", "Extension reloaded - refresh page (F5)");
+          if (S.busy) { setBusy(false); setSync("The extension was reloaded. Refresh this page (F5), then import again.", "err"); }
+        } else {
+          setBridge("wait", "Reconnecting...");
+          if (S.busy) setSync("Connection to the extension dropped, reconnecting...", "");
+          S.dropTimer = setTimeout(() => {
+            if (S.bridgeReady) return;
+            setBridge("off", "Extension disconnected - refresh page (F5)");
+            if (S.busy) { setBusy(false); setSync("Could not reconnect to the extension. Refresh this page (F5), then import again.", "err"); }
+          }, 6000);
+        }
+        break;
+      }
       case "BAUKO_BRIDGE_PROGRESS":
         setSync(m.message || "Working...", ""); $("sync").classList.add("busy"); break;
       case "BAUKO_BRIDGE_ERROR":
@@ -617,8 +663,8 @@ td a:hover{text-decoration:underline}
   function exportValidated() {
     const recs = Object.values(S.validated).sort((a, b) => a.at - b.at);
     if (!recs.length) { setSync("Nothing validated to export.", "err"); return; }
-    const lines = [EXPORT_HEAD];
-    recs.forEach((v) => lines.push([v.orderId || v.id, v.reason, v.attempts].map(csvCell).join(",")));
+    const lines = [EXPORT_HEAD + ",RTS"];
+    recs.forEach((v) => lines.push([v.orderId || v.id, v.reason, v.attempts, v.rts === "Yes" ? "Yes" : "No"].map(csvCell).join(",")));
     saveCsv(lines, "rider_onhold_validated_" + todayManila() + ".csv");
     setSync("Exported " + recs.length.toLocaleString() + " validated rows. They stay saved until you clear them.", "good");
   }
@@ -694,6 +740,7 @@ td a:hover{text-decoration:underline}
   /* ---------- init ---------- */
   $("date").value = todayManila();
   try { const saved = localStorage.getItem(LS_KEY); if (saved) $("ids").value = saved; } catch (_) {}
+  const sr = store.get(LS_RTS); if (sr && typeof sr === "object") S.rts = sr;
   const sv = store.get(LS_VAL); if (sv && typeof sv === "object") S.validated = sv;
   const sd = store.get(LS_DATA);
   if (sd && Array.isArray(sd.rows) && sd.rows.length) { S.rows = sd.rows; S.haveData = true; S.sourceLabel = sd.label || "saved import"; S.importedAt = sd.at || 0; showSource(); }
