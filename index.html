@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rider OnHold Checker - Bauko Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9edf1; --panel:#ffffff; --ink:#15212b; --muted:#5c6b78; --line:#d5dce3;
+  --hold:#c2570c; --hold-bg:#fdeee0; --ok:#1c7a4d; --ok-bg:#e1f3ea;
+  --miss:#b3261e; --miss-bg:#fbe7e5; --extra:#355c8a; --extra-bg:#e3ecf6;
+  --accent:#15212b; --focus:#1a66d6;
+  --font:"Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0f161c; --panel:#18222b; --ink:#e7edf2; --muted:#93a3b1; --line:#2a3743;
+    --hold:#f0904a; --hold-bg:#3a2415; --ok:#58cd93; --ok-bg:#15301f;
+    --miss:#ff8a80; --miss-bg:#3b1a18; --extra:#8db6e6; --extra-bg:#172a3f;
+    --accent:#e7edf2; --focus:#6ea8ff;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.45;min-height:100vh}
+button,input,textarea,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+header.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;padding:18px 28px;background:var(--panel);border-bottom:1px solid var(--line)}
+header.top h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
+header.top p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);font-size:13px;font-weight:600;background:var(--bg)}
+.pill i{width:9px;height:9px;border-radius:50%;background:var(--muted);display:block}
+.pill.on i{background:var(--ok)} .pill.off i{background:var(--miss)} .pill.wait i{background:var(--hold)}
+
+main{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:20px;padding:20px 28px 40px;align-items:start}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:14px}header.top{padding:14px}}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.input-card{padding:16px;position:sticky;top:12px}
+@media (max-width:900px){.input-card{position:static}}
+.input-card h2{margin:0 0 4px;font-size:17px;font-weight:700}
+.hint{margin:0 0 10px;color:var(--muted);font-size:13px}
+textarea{width:100%;min-height:260px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55}
+.meta{display:flex;justify-content:space-between;gap:8px;margin:8px 0 12px;font-size:13px;color:var(--muted)}
+.meta b{color:var(--ink)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.row label{font-size:13px;color:var(--muted);font-weight:600}
+input[type=date]{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.btn{border:1px solid var(--line);background:var(--panel);padding:9px 14px;border-radius:8px;font-weight:600;cursor:pointer}
+.btn:hover:not(:disabled){border-color:var(--ink)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.btn.hold{background:var(--hold);border-color:var(--hold);color:#fff}
+.btn.block{width:100%;padding:12px 14px;font-size:15px}
+.btn.small{padding:6px 10px;font-size:13px}
+.sync-status{margin-top:10px;padding:9px 11px;border-radius:8px;background:var(--bg);font-size:13px;color:var(--muted);min-height:38px;word-break:break-word}
+.sync-status.err{background:var(--miss-bg);color:var(--miss)}
+.sync-status.good{background:var(--ok-bg);color:var(--ok)}
+.or{margin:12px 0 6px;font-size:13px;color:var(--muted)}
+.drop{display:block;padding:10px;border:1.5px dashed var(--line);border-radius:8px;text-align:center;font-size:13px;color:var(--muted);cursor:pointer}
+.drop.over,.drop:hover{border-color:var(--ink);color:var(--ink)}
+.drop input{display:none}
+.source{margin-top:10px;font-size:12.5px;color:var(--muted)}
+
+.results{min-width:0}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media (max-width:640px){.tabs{grid-template-columns:repeat(2,1fr)}}
+.tab{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer;border-left-width:6px}
+.tab .n{display:block;font-size:30px;font-weight:800;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tab .l{display:block;font-size:13px;color:var(--muted);font-weight:600;margin-top:2px}
+.tab[data-k=input]{border-left-color:var(--ink)}
+.tab[data-k=matched]{border-left-color:var(--ok)}
+.tab[data-k=missing]{border-left-color:var(--miss)}
+.tab[data-k=extra]{border-left-color:var(--extra)}
+.tab[aria-selected=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tab[aria-selected=true] .l{color:var(--bg);opacity:.8}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+.toolbar .left{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.search{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);min-width:200px}
+.chk{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.title-line{font-weight:700}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:860px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;font-size:14px}
+th{position:sticky;top:0;background:var(--panel);font-size:13px;color:var(--muted);font-weight:700;cursor:pointer;user-select:none}
+th:hover{color:var(--ink)}
+tbody tr:hover{background:var(--bg)}
+td.num{font-variant-numeric:tabular-nums}
+td a{color:var(--extra);font-weight:600;text-decoration:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+td a:hover{text-decoration:underline}
+.reason{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--hold-bg);color:var(--hold);font-weight:600;font-size:13px}
+.flag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;background:var(--miss-bg);color:var(--miss);font-size:12px;font-weight:700}
+.att{display:inline-block;min-width:24px;text-align:center;padding:1px 7px;border-radius:6px;background:var(--bg);font-weight:700}
+.att.hi{background:var(--miss-bg);color:var(--miss)}
+.empty{padding:44px 20px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
+.footer-note{padding:10px 14px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line)}
+@media (prefers-reduced-motion:no-preference){.sync-status.busy{animation:pulse 1.6s ease-in-out infinite}}
+@keyframes pulse{50%{opacity:.55}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>Rider OnHold Checker</h1>
+    <p>Bauko Hub - compare the Order IDs you have against the OnHold list in SPX</p>
+  </div>
+  <span id="bridgePill" class="pill wait" role="status"><i></i><span id="bridgeText">Looking for extension...</span></span>
+</header>
+
+<main>
+  <section class="card input-card" aria-labelledby="inTitle">
+    <h2 id="inTitle">Actual Order IDs</h2>
+    <p class="hint">Paste as many as you like. New line, comma, space or tab all work.</p>
+    <textarea id="ids" spellcheck="false" placeholder="PH267017030058R&#10;PH2631075273142&#10;..."></textarea>
+    <div class="meta"><span><b id="cntIds">0</b> unique IDs</span><span id="cntDup"></span></div>
+
+    <div class="row">
+      <label for="date">Date</label>
+      <input type="date" id="date">
+      <button class="btn small" id="clearBtn" type="button">Clear IDs</button>
+    </div>
+
+    <button class="btn hold block" id="importBtn" type="button">Import OnHold from SPX Portal</button>
+    <div class="row" style="margin-top:8px"><button class="btn small" id="abortBtn" type="button" hidden>Cancel import</button></div>
+    <div id="sync" class="sync-status" role="status" aria-live="polite">Not imported yet.</div>
+
+    <p class="or">No extension? Load the exported CSV yourself:</p>
+    <label class="drop" id="drop">Choose or drop the OnHold CSV here
+      <input type="file" id="file" accept=".csv,text/csv">
+    </label>
+    <div class="source" id="source"></div>
+  </section>
+
+  <section class="results" aria-label="Results">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-k="input" aria-selected="false"><span class="n" id="nInput">0</span><span class="l">Inputted</span></button>
+      <button class="tab" role="tab" data-k="matched" aria-selected="true"><span class="n" id="nMatched">0</span><span class="l">Found OnHold in SPX</span></button>
+      <button class="tab" role="tab" data-k="missing" aria-selected="false"><span class="n" id="nMissing">0</span><span class="l">Missing from SPX OnHold</span></button>
+      <button class="tab" role="tab" data-k="extra" aria-selected="false"><span class="n" id="nExtra">0</span><span class="l">In SPX, not inputted</span></button>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <div class="left">
+          <span class="title-line" id="viewTitle">Found OnHold in SPX</span>
+          <input class="search" id="search" type="search" placeholder="Search this list" aria-label="Search this list">
+        </div>
+        <div class="left">
+          <label class="chk"><input type="checkbox" id="incMissing" checked> Include missing IDs in CSV</label>
+          <button class="btn primary small" id="exportBtn" type="button">Export CSV</button>
+        </div>
+      </div>
+      <div class="tablewrap" id="tableHost"></div>
+      <div class="footer-note">Click any Order ID to open its OnHold proof page in SPX in a new tab. Click a column heading to sort.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------- constants ---------- */
+  const PAGE_SOURCE = "BAUKO_SPX_BRIDGE";   // extension -> page
+  const CHECKER_SOURCE = "BAUKO_CHECKER";    // page -> extension
+  const LINK = (id) => "https://spx.shopee.ph/#/orderDetail/" + encodeURIComponent(id) + "/proof_of_onhold";
+  const COLS = ["Order ID", "Town Name", "Driver ID", "Driver Name", "OnHoldReason", "Status", "Delivery Attempts", "Current Station"];
+  const LS_KEY = "rider_onhold_checker_ids_v1";
+
+  /* ---------- state ---------- */
+  const S = {
+    inputIds: [],        // unique, uppercase, in input order
+    dupes: 0,
+    rows: [],            // imported SPX rows (objects keyed by header)
+    haveData: false,
+    sourceLabel: "",
+    result: { matched: [], missing: [], extra: [] },
+    view: "matched",
+    sort: { col: null, dir: 1 },
+    bridgeReady: false,
+    busy: false
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs, ...kids) => {
+    const n = document.createElement(tag);
+    for (const k in (attrs || {})) {
+      if (k === "class") n.className = attrs[k]; else if (k === "text") n.textContent = attrs[k]; else n.setAttribute(k, attrs[k]);
+    }
+    kids.flat().forEach((c) => n.append(c));
+    return n;
+  };
+
+  /* ---------- helpers ---------- */
+  function todayManila() {
+    return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+  function parseIds(text) {
+    const seen = new Set(), out = [];
+    let dupes = 0;
+    String(text || "").split(/[\s,;]+/).forEach((raw) => {
+      const id = raw.replace(/^["']+|["']+$/g, "").trim().toUpperCase();
+      if (!id) return;
+      if (seen.has(id)) { dupes++; return; }
+      seen.add(id); out.push(id);
+    });
+    return { ids: out, dupes };
+  }
+  function parseCSV(text) {
+    const src = String(text || "").replace(/^\uFEFF/, "");
+    const rows = [];
+    let row = [], field = "", q = false;
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (q) {
+        if (c === '"') { if (src[i + 1] === '"') { field += '"'; i++; } else q = false; }
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && src[i + 1] === "\n") i++;
+        row.push(field); field = "";
+        if (row.length > 1 || row[0] !== "") rows.push(row);
+        row = [];
+      } else field += c;
+    }
+    if (field !== "" || row.length) { row.push(field); if (row.length > 1 || row[0] !== "") rows.push(row); }
+    return rows;
+  }
+  function csvToObjects(text) {
+    const grid = parseCSV(text);
+    if (!grid.length) return { rows: [], missingCols: COLS.slice() };
+    const header = grid[0].map((h) => h.trim());
+    const missingCols = COLS.filter((c) => !header.includes(c));
+    const rows = grid.slice(1).map((r) => {
+      const o = {};
+      header.forEach((h, i) => { o[h] = (r[i] == null ? "" : r[i]).trim(); });
+      return o;
+    }).filter((o) => (o["Order ID"] || "").length);
+    return { rows, missingCols };
+  }
+  function csvCell(v) {
+    const s = v == null ? "" : String(v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function setSync(msg, kind) {
+    const n = $("sync");
+    n.textContent = msg;
+    n.className = "sync-status" + (kind ? " " + kind : "");
+  }
+
+  /* ---------- the check ---------- */
+  function runCheck() {
+    const inputSet = new Set(S.inputIds);
+    // index SPX rows by Order ID and by SLS Tracking Number (either can be what a rider has)
+    const byKey = new Map();
+    S.rows.forEach((r) => {
+      byKey.set(String(r["Order ID"]).toUpperCase(), r);
+      const sls = String(r["SLS Tracking Number"] || "").toUpperCase();
+      if (sls && !byKey.has(sls)) byKey.set(sls, r);
+    });
+    const matched = [], missing = [], used = new Set();
+    S.inputIds.forEach((id) => {
+      const r = byKey.get(id);
+      if (r) { matched.push(r); used.add(r); } else missing.push({ "Order ID": id });
+    });
+    const extra = S.rows.filter((r) => {
+      if (used.has(r)) return false;
+      return !inputSet.has(String(r["Order ID"]).toUpperCase());
+    });
+    S.result = { matched, missing, extra };
+    render();
+  }
+
+  /* ---------- rendering ---------- */
+  function counts() {
+    $("cntIds").textContent = S.inputIds.length.toLocaleString();
+    $("cntDup").textContent = S.dupes ? S.dupes + " duplicate" + (S.dupes > 1 ? "s" : "") + " removed" : "";
+    $("nInput").textContent = S.inputIds.length.toLocaleString();
+    $("nMatched").textContent = S.result.matched.length.toLocaleString();
+    $("nMissing").textContent = S.result.missing.length.toLocaleString();
+    $("nExtra").textContent = S.result.extra.length.toLocaleString();
+  }
+  const TITLES = { input: "Inputted Order IDs", matched: "Found OnHold in SPX", missing: "Inputted but missing from SPX OnHold", extra: "In SPX OnHold but not inputted" };
+
+  function orderLink(id) {
+    return el("a", { href: LINK(id), target: "_blank", rel: "noopener noreferrer", text: id, title: "Open OnHold proof in SPX" });
+  }
+  function currentRows() {
+    const q = $("search").value.trim().toLowerCase();
+    let list;
+    if (S.view === "input") {
+      const status = new Map();
+      S.result.matched.forEach((r) => status.set(String(r["Order ID"]).toUpperCase(), r));
+      list = S.inputIds.map((id) => ({ "Order ID": id, "Result": S.result.missing.some((m) => m["Order ID"] === id) ? "Missing" : "Found" }));
+      // faster lookup instead of .some per row for large inputs
+      const miss = new Set(S.result.missing.map((m) => m["Order ID"]));
+      list.forEach((o) => { o["Result"] = !S.haveData ? "Not checked" : miss.has(o["Order ID"]) ? "Missing" : "Found"; });
+    } else list = S.result[S.view];
+    if (q) list = list.filter((r) => Object.values(r).some((v) => String(v).toLowerCase().includes(q)));
+    if (S.sort.col) {
+      const c = S.sort.col, d = S.sort.dir;
+      list = list.slice().sort((a, b) => String(a[c] || "").localeCompare(String(b[c] || ""), undefined, { numeric: true }) * d);
+    }
+    return list;
+  }
+  function render() {
+    counts();
+    document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.k === S.view)));
+    $("viewTitle").textContent = TITLES[S.view];
+    const host = $("tableHost");
+    host.replaceChildren();
+    const list = currentRows();
+
+    if (!list.length) {
+      let head = "Nothing here", sub = "";
+      if (!S.inputIds.length && S.view !== "extra") { head = "No Order IDs yet"; sub = "Paste your Order IDs on the left."; }
+      else if (!S.haveData && S.view !== "input") { head = "Waiting for SPX data"; sub = "Click Import OnHold from SPX Portal, or load the CSV."; }
+      else if (S.view === "missing") { head = "Nothing missing"; sub = "Every inputted Order ID is OnHold in SPX."; }
+      else if (S.view === "extra") { head = "No extras"; sub = "Every OnHold parcel in SPX is in your list."; }
+      host.append(el("div", { class: "empty" }, el("b", { text: head }), sub));
+      return;
+    }
+
+    const cols = S.view === "input" ? ["Order ID", "Result"] : S.view === "missing" ? ["Order ID"] : COLS;
+    const thead = el("thead", null, el("tr", null, cols.map((c) => {
+      const th = el("th", { scope: "col", tabindex: "0", text: c + (S.sort.col === c ? (S.sort.dir > 0 ? " \u25B2" : " \u25BC") : "") });
+      const go = () => { S.sort = { col: c, dir: S.sort.col === c ? -S.sort.dir : 1 }; render(); };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      return th;
+    })));
+    const frag = document.createDocumentFragment();
+    const LIMIT = 3000;
+    list.slice(0, LIMIT).forEach((r) => {
+      const tr = el("tr");
+      cols.forEach((c) => {
+        const td = el("td");
+        const v = r[c] == null ? "" : r[c];
+        if (c === "Order ID") td.append(orderLink(v));
+        else if (c === "OnHoldReason") td.append(v ? el("span", { class: "reason", text: v }) : "");
+        else if (c === "Delivery Attempts") { td.className = "num"; td.append(el("span", { class: "att" + (Number(v) >= 3 ? " hi" : ""), text: v })); }
+        else if (c === "Status") { td.append(v); if (v && v !== "OnHold") td.append(el("span", { class: "flag", text: "not OnHold" })); }
+        else if (c === "Current Station") { td.append(v); if (v && v !== "Bauko Hub") td.append(el("span", { class: "flag", text: "other station" })); }
+        else if (c === "Result") td.append(el("span", { class: "flag", style: v === "Found" ? "background:var(--ok-bg);color:var(--ok)" : "", text: v }));
+        else td.append(v);
+        tr.append(td);
+      });
+      frag.append(tr);
+    });
+    host.append(el("table", null, thead, el("tbody", null, frag)));
+    if (list.length > LIMIT) host.append(el("div", { class: "empty", text: "Showing first " + LIMIT.toLocaleString() + " of " + list.length.toLocaleString() + ". Use search or export for the rest." }));
+  }
+
+  /* ---------- importing data ---------- */
+  function loadCsvText(text, label) {
+    const { rows, missingCols } = csvToObjects(text);
+    if (!rows.length) { setSync("The file has no OnHold rows.", "err"); return; }
+    if (missingCols.includes("Order ID")) { setSync("This does not look like an SPX export (no Order ID column).", "err"); return; }
+    S.rows = rows; S.haveData = true; S.sourceLabel = label;
+    $("source").textContent = "Loaded " + rows.length.toLocaleString() + " OnHold rows from " + label + ".";
+    const warn = missingCols.length ? " Missing columns: " + missingCols.join(", ") + "." : "";
+    setSync("Imported " + rows.length.toLocaleString() + " OnHold rows." + warn, missingCols.length ? "err" : "good");
+    if (S.view === "input" || S.view === "matched") S.view = "matched";
+    runCheck();
+  }
+
+  /* ---------- extension bridge ---------- */
+  function setBridge(state, text) {
+    const p = $("bridgePill");
+    p.className = "pill " + state;
+    $("bridgeText").textContent = text;
+  }
+  function setBusy(b) {
+    S.busy = b;
+    $("importBtn").disabled = b;
+    $("abortBtn").hidden = !b;
+    $("sync").classList.toggle("busy", b);
+  }
+  function post(type, extra) {
+    window.postMessage(Object.assign({ source: CHECKER_SOURCE, type }, extra || {}), "*");
+  }
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const m = event.data;
+    if (!m || m.source !== PAGE_SOURCE) return;
+    switch (m.type) {
+      case "BAUKO_BRIDGE_READY":
+        S.bridgeReady = true; setBridge("on", "Extension connected" + (m.version ? " v" + m.version : "")); break;
+      case "BAUKO_BRIDGE_DISCONNECTED":
+        S.bridgeReady = false; setBridge("off", "Extension disconnected");
+        if (S.busy) { setBusy(false); setSync(m.message || "Extension connection closed. Refresh the page (F5) and try again.", "err"); }
+        break;
+      case "BAUKO_BRIDGE_PROGRESS":
+        setSync(m.message || "Working...", ""); $("sync").classList.add("busy"); break;
+      case "BAUKO_BRIDGE_ERROR":
+        setBusy(false); setSync(m.message || "Extension error.", "err"); break;
+      case "BAUKO_ONHOLD_DATA":
+        setBusy(false);
+        loadCsvText(m.csvText || "", "SPX (" + (m.fileName || "export") + ")");
+        break;
+    }
+  });
+
+  /* ---------- export ---------- */
+  function exportCsv() {
+    if (!S.inputIds.length) { setSync("Nothing to export. Paste some Order IDs first.", "err"); return; }
+    const inc = $("incMissing").checked;
+    const matchedBy = new Map();
+    S.result.matched.forEach((r) => {
+      matchedBy.set(String(r["Order ID"]).toUpperCase(), r);
+      const sls = String(r["SLS Tracking Number"] || "").toUpperCase();
+      if (sls && !matchedBy.has(sls)) matchedBy.set(sls, r);
+    });
+    const lines = [["Order ID", "OnHoldReason", "Delivery Attempts"].join(",")];
+    let n = 0;
+    S.inputIds.forEach((id) => {
+      const r = matchedBy.get(id);
+      if (!r && !inc) return;
+      lines.push([r ? r["Order ID"] : id, r ? r["OnHoldReason"] : "", r ? r["Delivery Attempts"] : ""].map(csvCell).join(","));
+      n++;
+    });
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    const a = el("a", { href: URL.createObjectURL(blob), download: "rider_onhold_" + $("date").value + ".csv" });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    setSync("Exported " + n.toLocaleString() + " rows.", "good");
+  }
+
+  /* ---------- wiring ---------- */
+  function onIdsChanged() {
+    const { ids, dupes } = parseIds($("ids").value);
+    S.inputIds = ids; S.dupes = dupes;
+    try { localStorage.setItem(LS_KEY, $("ids").value); } catch (_) {}
+    if (S.haveData) runCheck(); else render();
+  }
+  $("ids").addEventListener("input", onIdsChanged);
+  $("clearBtn").addEventListener("click", () => { $("ids").value = ""; onIdsChanged(); $("ids").focus(); });
+  $("search").addEventListener("input", render);
+  $("exportBtn").addEventListener("click", exportCsv);
+  document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { S.view = t.dataset.k; S.sort = { col: null, dir: 1 }; render(); }));
+
+  $("importBtn").addEventListener("click", () => {
+    if (!S.bridgeReady) {
+      post("BAUKO_CHECKER_READY");
+      setSync("Extension not detected. Load the BAUKO SPX BRIDGE extension, refresh this page (F5), or load the CSV manually.", "err");
+      return;
+    }
+    setBusy(true);
+    setSync("Asking SPX for the OnHold export...", "");
+    post("BAUKO_START_ONHOLD_SYNC", { date: $("date").value || todayManila() });
+  });
+  $("abortBtn").addEventListener("click", () => { post("BAUKO_ABORT_SYNC"); setSync("Cancelling...", ""); });
+
+  const fileInput = $("file"), drop = $("drop");
+  const readFile = (f) => {
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => loadCsvText(String(rd.result || ""), f.name);
+    rd.onerror = () => setSync("Could not read that file.", "err");
+    rd.readAsText(f);
+  };
+  fileInput.addEventListener("change", () => { readFile(fileInput.files[0]); fileInput.value = ""; });
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => readFile(e.dataTransfer.files[0]));
+
+  /* ---------- init ---------- */
+  $("date").value = todayManila();
+  try { const saved = localStorage.getItem(LS_KEY); if (saved) $("ids").value = saved; } catch (_) {}
+  onIdsChanged();
+  post("BAUKO_CHECKER_READY");
+  let tries = 0;
+  const poll = setInterval(() => {
+    if (S.bridgeReady || ++tries > 6) { clearInterval(poll); if (!S.bridgeReady) setBridge("off", "Extension not detected"); return; }
+    post("BAUKO_CHECKER_READY");
+  }, 700);
+})();
+</script>
+</body>
+</html>
