@@ -140,6 +140,8 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
     <div class="row">
       <label for="date">Date</label>
       <input type="date" id="date">
+      <label for="stationId">Station ID</label>
+      <input type="number" id="stationId" inputmode="numeric" min="1" step="1" placeholder="e.g. 3634" title="SPX station ID to pull data for. Leave blank to use your SPX account's own station." style="width:110px">
       <button class="btn small" id="clearBtn" type="button">Clear IDs</button>
     </div>
 
@@ -300,6 +302,12 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
     const k = new Set();
     Object.values(S.validated).forEach((v) => { [v.id, v.orderId, v.sls].forEach((x) => { if (x) k.add(String(x).toUpperCase()); }); });
     return k;
+  }
+  // The station most imported rows belong to (so the "other station" flag works for any station).
+  function homeStation() {
+    const c = {}; let best = "", n = 0;
+    S.rows.forEach((r) => { const s = r["Current Station"]; if (s) { c[s] = (c[s] || 0) + 1; if (c[s] > n) { n = c[s]; best = s; } } });
+    return best;
   }
   function keyMap() {
     const m = new Map();
@@ -539,7 +547,7 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
         else if (c === "OnHoldReason") td.append(v ? el("span", { class: "reason", text: v }) : "");
         else if (c === "Delivery Attempts") { td.className = "num"; td.append(el("span", { class: "att" + (Number(v) >= 3 ? " hi" : ""), text: v })); }
         else if (c === "Status") { td.append(v); if (v && v !== "OnHold") td.append(el("span", { class: "flag", text: "not OnHold" })); }
-        else if (c === "Current Station") { td.append(v); if (v && v !== "Bauko Hub") td.append(el("span", { class: "flag", text: "other station" })); }
+        else if (c === "Current Station") { td.append(v); if (v && v !== homeStation()) td.append(el("span", { class: "flag", text: "other station" })); }
         else if (c === "Result") td.append(el("span", { class: "flag", style: v === "Found" ? "background:var(--ok-bg);color:var(--ok)" : "", text: v }));
         else td.append(v);
         tr.append(td);
@@ -618,8 +626,23 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
     $("abortBtn").hidden = !b;
     $("sync").classList.toggle("busy", b);
   }
+  /* ---------- station ID (saved in this browser) ---------- */
+  const LS_STATION = "bauko_station_id_v1";
+  // returns a positive integer, null when blank, or false when invalid
+  function stationValue() {
+    const raw = String($("stationId").value || "").trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : false;
+  }
+  function bridgeAtLeast(maj, min) {
+    const v = String(S.bridgeVer || "").split(".").map(Number);
+    return v[0] > maj || (v[0] === maj && v[1] >= min);
+  }
   function post(type, extra) {
-    window.postMessage(Object.assign({ source: CHECKER_SOURCE, type }, extra || {}), "*");
+    const o = Object.assign({ source: CHECKER_SOURCE, type }, extra || {});
+    if (/^BAUKO_START_/.test(type)) o.stationId = stationValue() || null;
+    window.postMessage(o, "*");
   }
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
@@ -732,8 +755,11 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
       setSync("Extension not detected. Load the BAUKO SPX BRIDGE extension, refresh this page (F5), or load the CSV manually.", "err");
       return;
     }
+    const st = stationValue();
+    if (st === false) { setSync("Station ID must be a whole number, e.g. 3634.", "err"); $("stationId").focus(); return; }
+    if (st && !bridgeAtLeast(2, 4)) { setSync("Update the BAUKO SPX BRIDGE extension to v2.4 or newer to choose a station (it is v" + (S.bridgeVer || "?") + ").", "err"); return; }
     setBusy(true);
-    setSync("Asking SPX for the OnHold export...", "");
+    setSync("Asking SPX for the OnHold export" + (st ? " (station " + st + ")" : "") + "...", "");
     post("BAUKO_START_ONHOLD_SYNC", { date: $("date").value || todayManila() });
   });
   $("abortBtn").addEventListener("click", () => { post("BAUKO_ABORT_SYNC"); setSync("Cancelling...", ""); });
@@ -754,6 +780,8 @@ select.rts.yes{background:var(--miss-bg);color:var(--miss);border-color:var(--mi
   /* ---------- init ---------- */
   $("date").value = todayManila();
   try { const saved = localStorage.getItem(LS_KEY); if (saved) $("ids").value = saved; } catch (_) {}
+  try { const ss = localStorage.getItem(LS_STATION); if (ss) $("stationId").value = ss; } catch (_) {}
+  $("stationId").addEventListener("input", () => { try { localStorage.setItem(LS_STATION, $("stationId").value.trim()); } catch (_) {} });
   const sr = store.get(LS_RTS); if (sr && typeof sr === "object") S.rts = sr;
   const sv = store.get(LS_VAL); if (sv && typeof sv === "object") S.validated = sv;
   const sd = store.get(LS_DATA);
